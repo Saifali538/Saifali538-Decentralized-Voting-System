@@ -1,0 +1,158 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract DecentralizedVotingSystem {
+    
+    // Structure to represent a proposal
+    struct Proposal {
+        uint256 id;
+        string title;
+        string description;
+        uint256 voteCount;
+        uint256 deadline;
+        bool active;
+        address proposer;
+    }
+    
+    // Structure to represent a voter
+    struct Voter {
+        bool isRegistered;
+        bool hasVoted;
+        uint256 votedProposalId;
+    }
+    
+    // State variables
+    address public admin;
+    uint256 public proposalCounter;
+    uint256 public constant VOTING_DURATION = 7 days;
+    
+    // Mappings
+    mapping(uint256 => Proposal) public proposals;
+    mapping(address => Voter) public voters;
+    mapping(uint256 => mapping(address => bool)) public proposalVotes;
+    
+    // Events
+    event VoterRegistered(address indexed voter);
+    event ProposalCreated(uint256 indexed proposalId, string title, address indexed proposer);
+    event VoteCasted(address indexed voter, uint256 indexed proposalId);
+    event ProposalEnded(uint256 indexed proposalId, uint256 finalVoteCount);
+    
+    // Modifiers
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only admin can perform this action");
+        _;
+    }
+    
+    modifier onlyRegisteredVoter() {
+        require(voters[msg.sender].isRegistered, "You must be registered to vote");
+        _;
+    }
+    
+    modifier proposalExists(uint256 _proposalId) {
+        require(_proposalId > 0 && _proposalId <= proposalCounter, "Proposal does not exist");
+        _;
+    }
+    
+    // Constructor
+    constructor() {
+        admin = msg.sender;
+        proposalCounter = 0;
+    }
+    
+    // Core Function 1: Register voters
+    function registerVoter(address _voterAddress) external onlyAdmin {
+        require(!voters[_voterAddress].isRegistered, "Voter is already registered");
+        
+        voters[_voterAddress] = Voter({
+            isRegistered: true,
+            hasVoted: false,
+            votedProposalId: 0
+        });
+        
+        emit VoterRegistered(_voterAddress);
+    }
+    
+    // Core Function 2: Create a new proposal
+    function createProposal(string memory _title, string memory _description) external onlyRegisteredVoter {
+        require(bytes(_title).length > 0, "Title cannot be empty");
+        require(bytes(_description).length > 0, "Description cannot be empty");
+        
+        proposalCounter++;
+        
+        proposals[proposalCounter] = Proposal({
+            id: proposalCounter,
+            title: _title,
+            description: _description,
+            voteCount: 0,
+            deadline: block.timestamp + VOTING_DURATION,
+            active: true,
+            proposer: msg.sender
+        });
+        
+        emit ProposalCreated(proposalCounter, _title, msg.sender);
+    }
+    
+    // Core Function 3: Cast vote on a proposal
+    function vote(uint256 _proposalId) external onlyRegisteredVoter proposalExists(_proposalId) {
+        require(proposals[_proposalId].active, "Proposal is not active");
+        require(block.timestamp <= proposals[_proposalId].deadline, "Voting period has ended");
+        require(!proposalVotes[_proposalId][msg.sender], "You have already voted on this proposal");
+        
+        // Record the vote
+        proposalVotes[_proposalId][msg.sender] = true;
+        proposals[_proposalId].voteCount++;
+        
+        // Update voter status
+        voters[msg.sender].hasVoted = true;
+        voters[msg.sender].votedProposalId = _proposalId;
+        
+        emit VoteCasted(msg.sender, _proposalId);
+    }
+    
+    // Additional helper functions
+    function endProposal(uint256 _proposalId) external proposalExists(_proposalId) {
+        require(
+            msg.sender == admin || msg.sender == proposals[_proposalId].proposer,
+            "Only admin or proposer can end the proposal"
+        );
+        require(proposals[_proposalId].active, "Proposal is already ended");
+        require(block.timestamp > proposals[_proposalId].deadline, "Voting period is still active");
+        
+        proposals[_proposalId].active = false;
+        emit ProposalEnded(_proposalId, proposals[_proposalId].voteCount);
+    }
+    
+    function getProposal(uint256 _proposalId) external view proposalExists(_proposalId) returns (
+        uint256 id,
+        string memory title,
+        string memory description,
+        uint256 voteCount,
+        uint256 deadline,
+        bool active,
+        address proposer
+    ) {
+        Proposal memory proposal = proposals[_proposalId];
+        return (
+            proposal.id,
+            proposal.title,
+            proposal.description,
+            proposal.voteCount,
+            proposal.deadline,
+            proposal.active,
+            proposal.proposer
+        );
+    }
+    
+    function getVoterStatus(address _voterAddress) external view returns (
+        bool isRegistered,
+        bool hasVoted,
+        uint256 votedProposalId
+    ) {
+        Voter memory voter = voters[_voterAddress];
+        return (voter.isRegistered, voter.hasVoted, voter.votedProposalId);
+    }
+    
+    function getTotalProposals() external view returns (uint256) {
+        return proposalCounter;
+    }
+}
